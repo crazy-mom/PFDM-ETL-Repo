@@ -30,5 +30,5 @@ INSERT INTO Source_Charges (Patient_ID, Service_Charge, Admin_Fee) VALUES
 -- Note: COMMIT is typically handled automatically in T-SQL when using
 -- the EXECUTE command in VS Code, but for completeness, we add it.
 COMMIT TRANSACTION;
-
+--This is test comment
 SELECT 'Source_Charges table created and 10 records inserted.' AS Status;
