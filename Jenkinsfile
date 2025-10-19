@@ -1,75 +1,85 @@
-// Global environment variables (e.g., database connection details)
-environment {
-    DB_TARGET = 'QA_SQL_SERVER_INSTANCE'
-    DB_USER   = credentials('etl-svc-user') // Stored Jenkins credential ID
-}
+pipeline {
+    // 1. Define where the pipeline runs (agent is mandatory in Declarative syntax)
+    agent any 
 
-stages {
-    // --- Stage 1: Checkout the Code ---
-    stage('Checkout Code') {
-        steps {
-            // Assuming the ETL code (e.g., Python scripts, SQL files) is in a Git repository
-            git url: 'https://github.com/crazy-mom/PFDM-ETL-Repo.git', branch: 'main'
-        }
+    // 2. Global environment variables (e.g., database connection details)
+    environment {
+        DB_TARGET = 'QA_SQL_SERVER_INSTANCE'
+        DB_USER   = credentials('etl-svc-user') // Stored Jenkins credential ID
     }
 
-    // --- Stage 2: Execute Core ETL Process ---
-    // This is the step that actually pulls data from Source and loads it to Target (the E and L).
-    stage('Run ETL Job') {
-        steps {
-            echo 'Starting ETL process: Extracting and Loading Patient Bills...'
-            // Command to execute the main ETL script (e.g., a Python script)
-            sh 'python3 etl_script.py --target ${DB_TARGET}'
-        }
-        // Optional: Use a post-failure condition to notify the developer immediately
-        post {
-            failure {
-                // Send notification if the main ETL script fails due to a connection or syntax error
-                mail to: 'gnayyar06@gmail.com',
-                     subject: "CRITICAL FAILURE: PFDM ETL Load",
-                     body: "The core ETL job failed. Check Jenkins console log for details."
+    // 3. Define the stages of the pipeline
+    stages {
+        // --- Stage 1: Checkout the Code ---
+        // Keeping this separate for clarity on where the pipeline obtains code.
+        stage('Checkout Source') {
+            steps {
+                // Ensure the repository is checked out. 
+                git url: 'https://github.com/crazy-mom/PFDM-ETL-Repo.git', branch: 'main'
             }
         }
-    }
 
-    // --- Stage 3: Automated Data Quality Check (The QA Step) ---
-    // This is where we run our Step 12 logic to automatically catch the rounding bug.
-    stage('Data Quality Validation') {
-        steps {
-            echo 'Running automated data quality checks...'
-            // Execute a separate Python script that runs the critical T-SQL validation query
-            // from the previous steps (looking for ROUND != LOADED).
-            sh 'python3 qa_validation_script.py --check rounding'
-        }
-    }
-
-    // --- Stage 4: Final Reporting and Notifications ---
-    stage('Final Notifications') {
-        steps {
-            script {
-                // Use the current build status for the subject line
-                if (currentBuild.currentResult == 'SUCCESS') {
-                    echo 'ETL job and data quality check successful.'
-                } else {
-                    // This block runs if Stage 3 (Quality Validation) failed
-                    echo 'Data Quality Validation FAILED. Alerting QA team.'
+        // --- Stage 2: Execute Core ETL Process (The E and L) ---
+        stage('Run ETL Job') {
+            steps {
+                echo 'Starting ETL process: Extracting and Loading Patient Bills...'
+                // Use the environment variable DB_TARGET
+                sh 'python3 etl_script.py --target ${DB_TARGET}'
+            }
+            // Immediate notification on failure for the core job
+            post {
+                failure {
+                    emailext (
+                        to: 'gnayyar06@gmail.com',
+                        subject: "CRITICAL FAILURE: PFDM ETL Load",
+                        body: "The core ETL job failed. Check Jenkins console log for details at ${env.BUILD_URL}"
+                    )
                 }
             }
         }
-        // Send final email based on the overall build status
-        post {
-            always {
-                junit 'test-results/validation-results.xml' // Archive test results
+
+        // --- Stage 3: Automated Data Quality Check (The QA Step) ---
+        stage('Data Quality Validation') {
+            steps {
+                echo 'Running automated data quality checks...'
+                // Executes a script that should return a non-zero exit code if the data quality fails.
+                sh 'python3 qa_validation_script.py --check rounding'
             }
-            failure {
-                mail to: 'qa-team@company.com', subject: "DQ ALERT: PFDM Rounding Error Detected", body: "Data Quality stage failed. Investigate the DW_Bills table immediately."
+        }
+
+        // --- Stage 4: Final Notifications ---
+        stage('Final Notifications') {
+            steps {
+                echo 'Archiving test results and sending final status notification.'
             }
-            success {
-                mail to: 'data-ops@company.com', subject: "SUCCESS: PFDM Daily Load Complete", body: "The ETL job completed and passed all data quality gates."
-            }
+            // No need for a script block here; post-build logic is better in the post section.
+        }
+    }
+
+    // 4. Post-build actions for the entire pipeline
+    post {
+        // Always run, typically for cleanup or archiving results
+        always {
+            // Archive test results from the Data Quality stage
+            junit 'test-results/validation-results.xml' 
+        }
+        
+        // Final email notification on failure (triggered by Stage 3 failure)
+        failure {
+            emailext (
+                to: 'qa-team@company.com', 
+                subject: "DQ ALERT: PFDM Rounding Error Detected (Build ${env.BUILD_NUMBER})", 
+                body: "Data Quality stage FAILED. Investigate the DW_Bills table immediately. Build URL: ${env.BUILD_URL}"
+            )
+        }
+        
+        // Final email notification on success
+        success {
+            emailext (
+                to: 'data-ops@company.com', 
+                subject: "SUCCESS: PFDM Daily Load Complete (Build ${env.BUILD_NUMBER})", 
+                body: "The ETL job completed and passed all data quality gates. Build URL: ${env.BUILD_URL}"
+            )
         }
     }
 }
-//end of Jenkinsfile
-
-
