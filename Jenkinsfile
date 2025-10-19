@@ -8,8 +8,9 @@ node {
     try {
         // --- Stage 1: Checkout the Code ---
         stage('Checkout Source') {
+            git tool: 'Local_M1_Git',
             // Ensure the repository is checked out. 
-            git url: 'https://github.com/crazy-mom/PFDM-ETL-Repo.git', branch: 'main'
+            url: 'https://github.com/crazy-mom/PFDM-ETL-Repo.git', branch: 'main'
         }
 
         // --- Stage 2: Execute Core ETL Process (The E and L) ---
